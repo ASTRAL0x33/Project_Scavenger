@@ -13,7 +13,7 @@ Scavenger Project replaces the original part-carrying mechanic on selected maps 
 *  Turbine
 *  Zombie Shield
 *  Turret
-*  Electric Trap (E-Trap)
+*  Electric Trap
 *  Jet Gun
 *  Trample Steam
 *  Head Chopper
