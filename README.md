@@ -1,0 +1,76 @@
+# 🛠️ Project Scavenger
+
+Bring the **modern Zombies buildable system** to the classic Black Ops II experience on **Plutonium**.
+
+Scavenger Project replaces the original part-carrying mechanic on selected maps with a system inspired by **Mob of the Dead**, **Origins**, and **Black Ops III Zombies**, allowing players to carry buildable parts in a much more intuitive and modern way.
+
+> **Supported maps:** Tranzit, Die Rise, and Buried.
+
+---
+
+## Buildables Using the New Carry System
+
+*  Turbine
+*  Zombie Shield
+*  Turret
+*  Electric Trap (E-Trap)
+*  Jet Gun
+*  Trample Steam
+*  Head Chopper
+*  Resonator
+*  Nav-Card Tables
+*  Richtofen's Endgame Guillotine
+*  Maxis' Endgame Gallows
+
+---
+
+##  Buildables That Keep Their Original Mechanics 
+*  Elevator Key
+*  Chalks
+*  Booze
+*  Candies
+
+(These are intentionally remain unchanged to preserve the original gameplay experience and avoid unnecessary bugs or conflicts with existing mechanics)
+
+---
+
+# 📖 Tutorial
+
+> **Step 0:** Sell your soul. *(Optional)* 
+
+### 1. Download the files
+
+Download or clone this repository.
+
+### 2. Open your Plutonium folder
+
+Navigate to:
+
+```text
+AppData\Local\Plutonium\storage\t6
+```
+
+### 3. Install the mod
+
+Drag and drop the downloaded folders into the `t6` directory.
+
+> If Windows asks whether you want to replace existing files, choose **Replace**.
+
+### 4. Launch the game
+
+Start **Plutonium BO2 Zombies**, load into **Tranzit**, **Die Rise**, or **Buried**, and enjoy the new buildable carrying system!
+
+---
+## 🎯 Objectives for Future Updates
+
+* Recreate the **Mob of the Dead / Origins-style UI**, allowing players to check which parts they have collected directly from the leaderboard.
+* Continue improving stability and fixing any future bugs or unexpected issues.
+
+### ⚠️ Known Issues
+
+* On **Die Rise**, buildable tables may occasionally become interactable from the floor above due to the map's vertical layout.
+---
+
+## 🎉 You're done!
+
+Have fun, and if you encounter any bugs or issues, feel free to open an issue on this repository.
