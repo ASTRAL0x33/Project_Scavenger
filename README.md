@@ -68,7 +68,7 @@ Start **Plutonium BO2 Zombies**, load into **Tranzit**, **Die Rise**, or **Burie
 
 ### ⚠️ Known Issues
 
-* On **Die Rise**, buildable tables may occasionally become interactable from the floor above due to the map's vertical layout.
+* On **Die Rise**, buildable tables may occasionally become interactable from the floor above, same issue may happen inside the Farm House in **Tranzit**.
 ---
 
 ## 🎉 You're done!
