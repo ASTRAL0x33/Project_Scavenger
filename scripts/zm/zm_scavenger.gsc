@@ -1,6 +1,6 @@
 /*
 "Project Scavenger" - TranZit / Die Rise / Buried
-v1
+v1.1
 
 Made by: NickB_05
 
@@ -19,6 +19,9 @@ Made by: NickB_05
 
  DISCLAMER: If you're going to use this script for a different project please
  credit my work, since it took me atleast a month to finish this project
+ 
+v1.1 Patch Fixes made by: SyntaXError
+
 */
 
 #include maps\mp\zombies\_zm_buildables;
@@ -38,6 +41,17 @@ init()
 
     if ( map != "zm_transit" && map != "zm_highrise" && map != "zm_buried" )
         return;
+
+    level.mc_is_buried = ( map == "zm_buried" );
+
+    if ( level.mc_is_buried )
+    {
+        func = getfunction( "maps/mp/zombies/_zm_buildables_pooled", "pooledbuildable_stub_for_piece" );
+        if ( isdefined( func ) )
+        {
+            replacefunc( func, ::custom_pooledbuildable_stub_for_piece );
+        }
+    }
 
     level.mc_debug = 0;
     if ( getdvar( "mc_debug" ) == "1" )
@@ -115,6 +129,7 @@ mc_display_name( name )
         case "headchopper_zm":
             return "Head Chopper";
         case "subwoofer_zm":
+        case "subwoofer":
             return "Resonator";
         case "buried_sq_bt_m_tower":
             return "Gallows";
@@ -160,6 +175,7 @@ mc_representative_icon( name )
         case "headchopper_zm":
             return "zom_hud_icon_buildable_chop_a";
         case "subwoofer_zm":
+        case "subwoofer":
             return "zom_hud_icon_buildable_woof_speaker";
         case "buried_sq_bt_m_tower":
             return "zm_hud_icon_battery";
@@ -238,6 +254,7 @@ mc_is_ours( name )
 {
     return isdefined( level.mc_gated_buildables[name] ) || isdefined( level.mc_immediate_buildables[name] );
 }
+
 mc_in_range( origin, target, radius_sq )
 {
     if ( distance2dsquared( origin, target ) >= radius_sq )
@@ -253,6 +270,7 @@ mc_in_range( origin, target, radius_sq )
 
     return true;
 }
+
 mc_build_radius_sq( name )
 {
     switch ( name )
@@ -289,6 +307,35 @@ mc_setup_custom_prompts()
     }
 }
 
+mc_buried_find_ready_target()
+{
+    foreach ( stub in level.buildable_stubs )
+    {
+        if ( !isdefined( stub.buildablezone ) || !isdefined( stub.mc_ours ) || !stub.mc_ours )
+            continue;
+
+        if ( isdefined( stub.table_built ) && stub.table_built )
+            continue;
+
+        if ( isdefined( stub.built ) && stub.built )
+            continue;
+
+        zone = stub.buildablezone;
+        deliverable = self mc_get_deliverable_pieces( zone );
+        can_attempt = false;
+
+        if ( stub.mc_gated )
+            can_attempt = deliverable.size > 0 && deliverable.size == mc_count_remaining( zone );
+        else
+            can_attempt = deliverable.size > 0;
+
+        if ( can_attempt )
+            return stub;
+    }
+
+    return undefined;
+}
+
 mc_custom_prompt( player )
 {
     if ( isdefined( self.mc_original_prompt ) && !( self [[ self.mc_original_prompt ]]( player ) ) )
@@ -310,12 +357,25 @@ mc_custom_prompt( player )
     else
         ready = deliverable.size > 0;
 
+    display_name = zone.buildable_name;
+    use_generic_text = false;
+
+    if ( !ready && level.mc_is_buried )
+    {
+        target = player mc_buried_find_ready_target();
+
+        if ( isdefined( target ) )
+        {
+            ready = true;
+            display_name = target.buildablezone.buildable_name;
+            use_generic_text = true;
+        }
+    }
+
     if ( ready )
     {
-        if ( isdefined( level.zombie_buildables[self.equipname].hint ) )
+        if ( !use_generic_text && isdefined( level.zombie_buildables[self.equipname].hint ) )
             self.hint_string = level.zombie_buildables[self.equipname].hint;
-        else
-            self.hint_string = "Build " + mc_display_name( zone.buildable_name );
 
         self.cursor_hint = "HINT_NOICON";
         return false;
@@ -355,10 +415,12 @@ mc_count_remaining( zone )
 
     return remaining;
 }
+
 mc_piece_key( piece )
 {
     return piece.buildablename + "|" + piece.modelname;
 }
+
 mc_get_deliverable_pieces( zone )
 {
     result = [];
@@ -417,7 +479,11 @@ mc_deliver_loop()
 
     while ( true )
     {
-        self mc_try_deliver();
+        if ( level.mc_is_buried )
+            self mc_try_deliver_buried();
+        else
+            self mc_try_deliver_default();
+
         wait 0.1;
     }
 }
@@ -490,7 +556,7 @@ mc_try_collect()
     }
 }
 
-mc_try_deliver()
+mc_try_deliver_default()
 {
     if ( isdefined( self.mc_last_pickup_time ) && gettime() - self.mc_last_pickup_time < 400 )
         return;
@@ -540,6 +606,210 @@ mc_try_deliver()
             self mc_deliver_pieces( zone, deliverable );
         }
     }
+}
+
+find_bench( bench_name )
+{
+    return getent( bench_name, "targetname" );
+}
+
+mc_swap_buildable_fields( stub1, stub2 )
+{
+    tbz = stub2.buildablezone;
+    stub2.buildablezone = stub1.buildablezone;
+    stub2.buildablezone.stub = stub2;
+    stub1.buildablezone = tbz;
+    stub1.buildablezone.stub = stub1;
+    tbs = stub2.buildablestruct;
+    stub2.buildablestruct = stub1.buildablestruct;
+    stub1.buildablestruct = tbs;
+    te = stub2.equipname;
+    stub2.equipname = stub1.equipname;
+    stub1.equipname = te;
+    th = stub2.hint_string;
+    stub2.hint_string = stub1.hint_string;
+    stub1.hint_string = th;
+    ths = stub2.trigger_hintstring;
+    stub2.trigger_hintstring = stub1.trigger_hintstring;
+    stub1.trigger_hintstring = ths;
+    tp = stub2.persistent;
+    stub2.persistent = stub1.persistent;
+    stub1.persistent = tp;
+    tobu = stub2.onbeginuse;
+    stub2.onbeginuse = stub1.onbeginuse;
+    stub1.onbeginuse = tobu;
+    tocu = stub2.oncantuse;
+    stub2.oncantuse = stub1.oncantuse;
+    stub1.oncantuse = tocu;
+    toeu = stub2.onenduse;
+    stub2.onenduse = stub1.onenduse;
+    stub1.onenduse = toeu;
+    tt = stub2.target;
+    stub2.target = stub1.target;
+    stub1.target = tt;
+    ttn = stub2.targetname;
+    stub2.targetname = stub1.targetname;
+    stub1.targetname = ttn;
+    twn = stub2.weaponname;
+    stub2.weaponname = stub1.weaponname;
+    stub1.weaponname = twn;
+    pav = stub2.original_prompt_and_visibility_func;
+    stub2.original_prompt_and_visibility_func = stub1.original_prompt_and_visibility_func;
+    stub1.original_prompt_and_visibility_func = pav;
+    bench1 = undefined;
+    bench2 = undefined;
+    transfer_pos_as_is = 1;
+
+    if ( isdefined( stub1.model ) && isdefined( stub2.model ) && isdefined( stub1.model.target ) && isdefined( stub2.model.target ) )
+    {
+        bench1 = find_bench( stub1.model.target );
+        bench2 = find_bench( stub2.model.target );
+
+        if ( isdefined( bench1 ) && isdefined( bench2 ) )
+        {
+            transfer_pos_as_is = 0;
+            w2lo1 = bench1 worldtolocalcoords( stub1.model.origin );
+            w2la1 = stub1.model.angles - bench1.angles;
+            w2lo2 = bench2 worldtolocalcoords( stub2.model.origin );
+            w2la2 = stub2.model.angles - bench2.angles;
+            stub1.model.origin = bench2 localtoworldcoords( w2lo1 );
+            stub1.model.angles = bench2.angles + w2la1;
+            stub2.model.origin = bench1 localtoworldcoords( w2lo2 );
+            stub2.model.angles = bench1.angles + w2la2;
+        }
+
+        tmt = stub2.model.target;
+        stub2.model.target = stub1.model.target;
+        stub1.model.target = tmt;
+    }
+
+    tm = stub2.model;
+    stub2.model = stub1.model;
+    stub1.model = tm;
+
+    if ( transfer_pos_as_is && isdefined( stub1.model ) && isdefined( stub2.model ) )
+    {
+        tmo = stub2.model.origin;
+        tma = stub2.model.angles;
+        stub2.model.origin = stub1.model.origin;
+        stub2.model.angles = stub1.model.angles;
+        stub1.model.origin = tmo;
+        stub1.model.angles = tma;
+    }
+}
+
+mc_try_deliver_buried()
+{
+    if ( isdefined( self.mc_last_pickup_time ) && gettime() - self.mc_last_pickup_time < 400 )
+        return;
+
+    if ( !self usebuttonpressed() )
+        return;
+
+    near_bench_stub = undefined;
+    best_dist = MC_BUILD_RADIUS_SQ;
+
+    foreach ( stub in level.buildable_stubs )
+    {
+        if ( !isdefined( stub.mc_ours ) || !stub.mc_ours )
+            continue;
+
+        if ( isdefined( stub.table_built ) && stub.table_built )
+            continue;
+
+        if ( isdefined( stub.built ) && stub.built )
+            continue;
+
+        s_orig = mc_get_stub_origin( stub );
+        if ( isdefined( s_orig ) && mc_in_range( self.origin, s_orig, MC_BUILD_RADIUS_SQ ) )
+        {
+            dist = distance2dsquared( self.origin, s_orig );
+            if ( dist < best_dist )
+            {
+                best_dist = dist;
+                near_bench_stub = stub;
+            }
+        }
+    }
+
+    if ( !isdefined( near_bench_stub ) )
+        return;
+
+    target_stub = self mc_buried_find_ready_target();
+
+    if ( !isdefined( target_stub ) )
+        return;
+
+    if ( near_bench_stub != target_stub )
+    {
+        mc_swap_buildable_fields( near_bench_stub, target_stub );
+    }
+
+    near_bench_stub.bound_to_buildable = near_bench_stub;
+    active_stub = near_bench_stub;
+
+    target_b_name = active_stub.buildablezone.buildable_name;
+
+    success = self mc_do_build_hold( active_stub, active_stub.buildablezone );
+
+    if ( success )
+    {
+        deliverable = self mc_get_deliverable_pieces( active_stub.buildablezone );
+        self mc_deliver_pieces( active_stub.buildablezone, deliverable );
+
+        foreach ( s in level.buildable_stubs )
+        {
+            s_orig = mc_get_stub_origin( s );
+            if ( isdefined( s_orig ) && distance2dsquared( s_orig, mc_get_stub_origin( active_stub ) ) < 4096 )
+            {
+                s.table_built = true;
+                s.built = true;
+            }
+        }
+
+        foreach ( s in level.buildable_stubs )
+        {
+            if ( isdefined( s.built ) && s.built )
+            {
+                s.bound_to_buildable = undefined;
+            }
+        }
+    }
+}
+
+custom_pooledbuildable_stub_for_piece( piece )
+{
+    if ( !isdefined( piece ) )
+        return undefined;
+
+    if ( !isdefined( self.stubs ) )
+        return undefined;
+
+    foreach ( stub in level.buildable_stubs )
+    {
+        if ( isdefined( stub.buildablezone ) && stub.buildablezone buildable_has_piece( piece ) )
+        {
+            if ( isdefined( stub.bound_to_buildable ) && stub.bound_to_buildable == stub )
+                return stub;
+        }
+    }
+
+    foreach ( stub in level.buildable_stubs )
+    {
+        if ( isdefined( stub.buildablezone ) && stub.buildablezone buildable_has_piece( piece ) )
+        {
+            if ( !( isdefined( stub.built ) && stub.built ) )
+                return stub;
+        }
+    }
+
+    foreach ( stub in level.buildable_stubs )
+    {
+        if ( isdefined( stub.buildablezone ) && stub.buildablezone buildable_has_piece( piece ) )
+            return stub;
+    }
+
+    return undefined;
 }
 
 mc_deliver_pieces( zone, pieces )
@@ -672,6 +942,7 @@ mc_build_dust_fx()
         wait 0.5;
     }
 }
+
 mc_progress_text( zone )
 {
     built = 0;
