@@ -1,6 +1,6 @@
 /*
 "Project Scavenger" - TranZit / Die Rise / Buried
-v1.1
+v1.2
 
 Made by: NickB_05
 
@@ -21,7 +21,7 @@ Made by: NickB_05
  credit my work, since it took me atleast a month to finish this project
  
 v1.1 Patch Fixes made by: SyntaXError
-
+v1.2 Patch Fixes made by: NickB_05
 */
 
 #include maps\mp\zombies\_zm_buildables;
@@ -42,9 +42,7 @@ init()
     if ( map != "zm_transit" && map != "zm_highrise" && map != "zm_buried" )
         return;
 
-    level.mc_is_buried = ( map == "zm_buried" );
-
-    if ( level.mc_is_buried )
+    if ( map == "zm_buried" )
     {
         func = getfunction( "maps/mp/zombies/_zm_buildables_pooled", "pooledbuildable_stub_for_piece" );
         if ( isdefined( func ) )
@@ -52,6 +50,8 @@ init()
             replacefunc( func, ::custom_pooledbuildable_stub_for_piece );
         }
     }
+
+    level.mc_is_buried = ( map == "zm_buried" );
 
     level.mc_debug = 0;
     if ( getdvar( "mc_debug" ) == "1" )
@@ -255,6 +255,11 @@ mc_is_ours( name )
     return isdefined( level.mc_gated_buildables[name] ) || isdefined( level.mc_immediate_buildables[name] );
 }
 
+mc_is_gated( name )
+{
+    return isdefined( level.mc_gated_buildables[name] );
+}
+
 mc_in_range( origin, target, radius_sq )
 {
     if ( distance2dsquared( origin, target ) >= radius_sq )
@@ -294,12 +299,7 @@ mc_setup_custom_prompts()
         if ( !isdefined( stub.buildablezone ) )
             continue;
 
-        name = stub.buildablezone.buildable_name;
-        stub.mc_gated = isdefined( level.mc_gated_buildables[name] );
-        stub.mc_immediate = isdefined( level.mc_immediate_buildables[name] );
-        stub.mc_ours = stub.mc_gated || stub.mc_immediate;
-
-        if ( !stub.mc_ours )
+        if ( !mc_is_ours( stub.buildablezone.buildable_name ) )
             continue;
 
         stub.mc_original_prompt = stub.custom_buildablestub_update_prompt;
@@ -311,7 +311,7 @@ mc_buried_find_ready_target()
 {
     foreach ( stub in level.buildable_stubs )
     {
-        if ( !isdefined( stub.buildablezone ) || !isdefined( stub.mc_ours ) || !stub.mc_ours )
+        if ( !isdefined( stub.buildablezone ) || !mc_is_ours( stub.buildablezone.buildable_name ) )
             continue;
 
         if ( isdefined( stub.table_built ) && stub.table_built )
@@ -324,7 +324,7 @@ mc_buried_find_ready_target()
         deliverable = self mc_get_deliverable_pieces( zone );
         can_attempt = false;
 
-        if ( stub.mc_gated )
+        if ( mc_is_gated( zone.buildable_name ) )
             can_attempt = deliverable.size > 0 && deliverable.size == mc_count_remaining( zone );
         else
             can_attempt = deliverable.size > 0;
@@ -338,6 +338,9 @@ mc_buried_find_ready_target()
 
 mc_custom_prompt( player )
 {
+    if ( isdefined( self.built ) && self.built )
+        return true;
+
     if ( isdefined( self.mc_original_prompt ) && !( self [[ self.mc_original_prompt ]]( player ) ) )
         return false;
 
@@ -346,19 +349,18 @@ mc_custom_prompt( player )
 
     zone = self.buildablezone;
 
-    if ( !self.mc_ours )
+    if ( !mc_is_ours( zone.buildable_name ) )
         return true;
 
     deliverable = player mc_get_deliverable_pieces( zone );
     ready = false;
 
-    if ( self.mc_gated )
+    if ( mc_is_gated( zone.buildable_name ) )
         ready = deliverable.size > 0 && deliverable.size == mc_count_remaining( zone );
     else
         ready = deliverable.size > 0;
 
     display_name = zone.buildable_name;
-    use_generic_text = false;
 
     if ( !ready && level.mc_is_buried )
     {
@@ -368,15 +370,14 @@ mc_custom_prompt( player )
         {
             ready = true;
             display_name = target.buildablezone.buildable_name;
-            use_generic_text = true;
         }
     }
 
     if ( ready )
     {
-        if ( !use_generic_text && isdefined( level.zombie_buildables[self.equipname].hint ) )
+        if ( isdefined( level.zombie_buildables[self.equipname] ) && isdefined( level.zombie_buildables[self.equipname].hint ) )
             self.hint_string = level.zombie_buildables[self.equipname].hint;
-
+			
         self.cursor_hint = "HINT_NOICON";
         return false;
     }
@@ -507,7 +508,7 @@ mc_try_collect()
             if ( !isdefined( stub.buildablezone ) || !isdefined( stub.buildablezone.pieces ) )
                 continue;
 
-            if ( !stub.mc_ours )
+            if ( !mc_is_ours( stub.buildablezone.buildable_name ) )
                 continue;
 
             if ( isdefined( stub.built ) && stub.built )
@@ -566,7 +567,7 @@ mc_try_deliver_default()
         if ( !isdefined( stub.buildablezone ) || !isdefined( stub.buildablezone.pieces ) )
             continue;
 
-        if ( !stub.mc_ours )
+        if ( !mc_is_ours( stub.buildablezone.buildable_name ) )
             continue;
 
         if ( isdefined( stub.built ) && stub.built )
@@ -584,7 +585,7 @@ mc_try_deliver_default()
         deliverable = self mc_get_deliverable_pieces( zone );
         can_attempt = false;
 
-        if ( stub.mc_gated )
+        if ( mc_is_gated( zone.buildable_name ) )
             can_attempt = deliverable.size > 0 && deliverable.size == mc_count_remaining( zone );
         else
             can_attempt = deliverable.size > 0;
@@ -711,7 +712,7 @@ mc_try_deliver_buried()
 
     foreach ( stub in level.buildable_stubs )
     {
-        if ( !isdefined( stub.mc_ours ) || !stub.mc_ours )
+        if ( !isdefined( stub.buildablezone ) || !mc_is_ours( stub.buildablezone.buildable_name ) )
             continue;
 
         if ( isdefined( stub.table_built ) && stub.table_built )
@@ -735,7 +736,34 @@ mc_try_deliver_buried()
     if ( !isdefined( near_bench_stub ) )
         return;
 
-    target_stub = self mc_buried_find_ready_target();
+    target_stub = undefined;
+
+    foreach ( stub in level.buildable_stubs )
+    {
+        if ( !isdefined( stub.buildablezone ) || !mc_is_ours( stub.buildablezone.buildable_name ) )
+            continue;
+
+        if ( isdefined( stub.table_built ) && stub.table_built )
+            continue;
+
+        if ( isdefined( stub.built ) && stub.built )
+            continue;
+
+        zone = stub.buildablezone;
+        deliverable = self mc_get_deliverable_pieces( zone );
+        can_attempt = false;
+
+        if ( mc_is_gated( zone.buildable_name ) )
+            can_attempt = deliverable.size > 0 && deliverable.size == mc_count_remaining( zone );
+        else
+            can_attempt = deliverable.size > 0;
+
+        if ( can_attempt )
+        {
+            target_stub = stub;
+            break;
+        }
+    }
 
     if ( !isdefined( target_stub ) )
         return;
@@ -757,23 +785,9 @@ mc_try_deliver_buried()
         deliverable = self mc_get_deliverable_pieces( active_stub.buildablezone );
         self mc_deliver_pieces( active_stub.buildablezone, deliverable );
 
-        foreach ( s in level.buildable_stubs )
-        {
-            s_orig = mc_get_stub_origin( s );
-            if ( isdefined( s_orig ) && distance2dsquared( s_orig, mc_get_stub_origin( active_stub ) ) < 4096 )
-            {
-                s.table_built = true;
-                s.built = true;
-            }
-        }
-
-        foreach ( s in level.buildable_stubs )
-        {
-            if ( isdefined( s.built ) && s.built )
-            {
-                s.bound_to_buildable = undefined;
-            }
-        }
+        active_stub.table_built = true;
+        active_stub.built = true;
+        active_stub.bound_to_buildable = undefined;
     }
 }
 
