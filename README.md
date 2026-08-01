@@ -1,8 +1,8 @@
 # 🛠️ Project Scavenger
 
-<img width="654" height="360" alt="buildable_demo" src="https://github.com/user-attachments/assets/71db7243-17b8-45d3-a192-d0b31532fa11" />
-
 Bring the **modern Zombies buildable system** to the classic Black Ops II experience on **Plutonium**.
+
+<img width="654" height="360" alt="buildable_demo" src="https://github.com/user-attachments/assets/71db7243-17b8-45d3-a192-d0b31532fa11" />
 
 Scavenger Project replaces the original part-carrying mechanic on selected maps with a system inspired by **Mob of the Dead**, **Origins**, and **Black Ops III Zombies**, allowing players to carry buildable parts in a much more intuitive and modern way.
 
