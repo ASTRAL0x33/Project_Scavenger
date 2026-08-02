@@ -22,6 +22,18 @@ Made by: NickB_05
  
 v1.1 Patch Fixes made by: SyntaXError
 v1.2 Patch Fixes made by: NickB_05
+v1.3 Patch Fixes
+
+Added the table build-selection system so double-tapping Use
+cycles between multiple ready buildables sharing the same table.
+
+Added the Die Rise elevator key system so the key only auto-refills
+while looking directly at an elevator callbox.
+
+Added the elevator key removal when looking away from the callbox.
+
+Added the ability to hold Use on a callbox for 0.5s to lock/unlock
+the elevator's current position.
 */
 
 #include maps\mp\zombies\_zm_buildables;
@@ -52,6 +64,7 @@ init()
     }
 
     level.mc_is_buried = ( map == "zm_buried" );
+    level.mc_is_highrise = ( map == "zm_highrise" );
 
     level.mc_debug = 0;
     if ( getdvar( "mc_debug" ) == "1" )
@@ -63,7 +76,6 @@ init()
     level.mc_gated_buildables["riotshield_zm"] = 1;
     level.mc_gated_buildables["turret"] = 1;
     level.mc_gated_buildables["electric_trap"] = 1;
-    level.mc_gated_buildables["powerswitch"] = 1;
     level.mc_gated_buildables["pap"] = 1;
     level.mc_gated_buildables["sq_common"] = 1;
     level.mc_gated_buildables["springpad_zm"] = 1; 
@@ -72,6 +84,10 @@ init()
     level.mc_gated_buildables["subwoofer_zm"] = 1;
     level.mc_gated_buildables["buried_sq_bt_m_tower"] = 1;
     level.mc_gated_buildables["buried_sq_bt_r_tower"] = 1;
+
+    if ( level.mc_is_buried )
+        level.mc_gated_buildables["powerswitch"] = 1;
+
     level.mc_immediate_buildables = [];
     level.mc_immediate_buildables["cattlecatcher"] = 1;
     level.mc_immediate_buildables["bushatch"] = 1;
@@ -375,6 +391,13 @@ mc_custom_prompt( player )
 
     if ( ready )
     {
+        if ( isdefined( player.mc_preferred_buildable ) && player.mc_preferred_buildable != zone.buildable_name )
+        {
+            self.hint_string = "";
+            self.cursor_hint = "HINT_NOICON";
+            return false;
+        }
+        
         if ( isdefined( level.zombie_buildables[self.equipname] ) && isdefined( level.zombie_buildables[self.equipname].hint ) )
             self.hint_string = level.zombie_buildables[self.equipname].hint;
 			
@@ -393,6 +416,12 @@ on_player_connect()
     {
         level waittill( "connected", player );
         player thread player_collect_and_build();
+        
+        if ( isdefined( level.mc_is_highrise ) && level.mc_is_highrise )
+        {
+            player thread mc_infinite_elevator_key_think();
+            player thread mc_elevator_lock_think_player();
+        }
     }
 }
 
@@ -461,6 +490,11 @@ player_collect_and_build()
 
     self thread mc_collect_loop();
     self thread mc_deliver_loop();
+    
+    if ( isdefined( level.mc_is_buried ) && level.mc_is_buried )
+    {
+        self thread mc_build_selection_loop();
+    }
 }
 
 mc_collect_loop()
@@ -591,6 +625,9 @@ mc_try_deliver_default()
             can_attempt = deliverable.size > 0;
 
         if ( !can_attempt )
+            continue;
+
+        if ( isdefined( self.mc_preferred_buildable ) && self.mc_preferred_buildable != zone.buildable_name )
             continue;
 
         if ( isdefined( stub.mc_original_prompt ) )
@@ -758,6 +795,9 @@ mc_try_deliver_buried()
         else
             can_attempt = deliverable.size > 0;
 
+        if ( isdefined( self.mc_preferred_buildable ) && self.mc_preferred_buildable != zone.buildable_name )
+            can_attempt = false;
+
         if ( can_attempt )
         {
             target_stub = stub;
@@ -808,19 +848,44 @@ custom_pooledbuildable_stub_for_piece( piece )
         }
     }
 
-    foreach ( stub in level.buildable_stubs )
-    {
-        if ( isdefined( stub.buildablezone ) && stub.buildablezone buildable_has_piece( piece ) )
-        {
-            if ( !( isdefined( stub.built ) && stub.built ) )
-                return stub;
-        }
-    }
+    valid_stubs = [];
 
     foreach ( stub in level.buildable_stubs )
     {
         if ( isdefined( stub.buildablezone ) && stub.buildablezone buildable_has_piece( piece ) )
-            return stub;
+        {
+            valid_stubs[valid_stubs.size] = stub;
+        }
+    }
+
+    if ( valid_stubs.size > 0 )
+    {
+        target_idx = 0;
+        p_name = piece.piece_name;
+        b_name = piece.buildablename;
+        
+        if ( !isdefined( p_name ) )
+            p_name = "";
+        if ( !isdefined( b_name ) )
+            b_name = "";
+
+        if ( b_name == "turbine" || issubstr( p_name, "turbine" ) || issubstr( p_name, "fan" ) || issubstr( p_name, "panel" ) || issubstr( p_name, "tail" ) || issubstr( p_name, "meter" ) ) target_idx = 0;
+        else if ( b_name == "springpad_zm" || issubstr( p_name, "springpad" ) || issubstr( p_name, "flag" ) || issubstr( p_name, "motor" ) || issubstr( p_name, "screen" ) || issubstr( p_name, "spring" ) || issubstr( p_name, "bellows" ) ) target_idx = 1;
+        else if ( b_name == "subwoofer_zm" || b_name == "subwoofer" || issubstr( p_name, "subwoofer" ) || issubstr( p_name, "speaker" ) || issubstr( p_name, "turntable" ) || issubstr( p_name, "board" ) || issubstr( p_name, "cabinet" ) ) target_idx = 2;
+        else if ( b_name == "headchopper_zm" || issubstr( p_name, "headchopper" ) || issubstr( p_name, "blade" ) || issubstr( p_name, "gear" ) || issubstr( p_name, "helmet" ) || issubstr( p_name, "shaft" ) ) target_idx = 3;
+
+        for ( i = 0; i < valid_stubs.size; i++ )
+        {
+            idx = (target_idx + i) % valid_stubs.size;
+            stub = valid_stubs[idx];
+
+            if ( !( isdefined( stub.built ) && stub.built ) )
+            {
+                return stub;
+            }
+        }
+        
+        return valid_stubs[0];
     }
 
     return undefined;
@@ -971,4 +1036,820 @@ mc_progress_text( zone )
     have = built + deliverable.size;
 
     return have + "/" + zone.pieces.size;
+}
+mc_sort_available_buildables( available )
+{
+    sorted = [];
+    order = [];
+    order[0] = "turbine";
+    order[1] = "springpad_zm";
+    order[2] = "subwoofer_zm";
+    order[3] = "headchopper_zm";
+
+    for ( i = 0; i < order.size; i++ )
+    {
+        for ( j = 0; j < available.size; j++ )
+        {
+            if ( isdefined( available[j] ) && isdefined( available[j].buildablezone ) )
+            {
+                if ( available[j].buildablezone.buildable_name == order[i] )
+                {
+                    is_dup = false;
+                    for ( k = 0; k < sorted.size; k++ )
+                    {
+                        if ( sorted[k].buildablezone.buildable_name == available[j].buildablezone.buildable_name )
+                        {
+                            is_dup = true;
+                            break;
+                        }
+                    }
+
+                    if ( !is_dup )
+                    {
+                        sorted[sorted.size] = available[j];
+                    }
+                }
+            }
+        }
+    }
+
+    for ( j = 0; j < available.size; j++ )
+    {
+        if ( isdefined( available[j] ) && isdefined( available[j].buildablezone ) )
+        {
+            is_dup = false;
+            for ( k = 0; k < sorted.size; k++ )
+            {
+                if ( sorted[k].buildablezone.buildable_name == available[j].buildablezone.buildable_name )
+                {
+                    is_dup = true;
+                    break;
+                }
+            }
+
+            if ( !is_dup )
+            {
+                sorted[sorted.size] = available[j];
+            }
+        }
+    }
+
+    return sorted;
+}
+
+mc_get_available_buildables_at_pos()
+{
+    available = [];
+    map = getdvar( "mapname" );
+
+    if ( map == "zm_buried" )
+    {
+        near_bench = false;
+        foreach ( stub in level.buildable_stubs )
+        {
+            if ( !isdefined( stub.buildablezone ) || !mc_is_ours( stub.buildablezone.buildable_name ) )
+                continue;
+            if ( isdefined( stub.table_built ) && stub.table_built )
+                continue;
+            if ( isdefined( stub.built ) && stub.built )
+                continue;
+
+            stub_origin = mc_get_stub_origin( stub );
+            if ( isdefined( stub_origin ) && mc_in_range( self.origin, stub_origin, MC_BUILD_RADIUS_SQ ) )
+            {
+                near_bench = true;
+                break;
+            }
+        }
+
+        if ( near_bench )
+        {
+            foreach ( stub in level.buildable_stubs )
+            {
+                if ( !isdefined( stub.buildablezone ) || !isdefined( stub.buildablezone.pieces ) )
+                    continue;
+                if ( !mc_is_ours( stub.buildablezone.buildable_name ) )
+                    continue;
+                if ( isdefined( stub.table_built ) && stub.table_built )
+                    continue;
+                if ( isdefined( stub.built ) && stub.built )
+                    continue;
+
+                zone = stub.buildablezone;
+                deliverable = self mc_get_deliverable_pieces( zone );
+                can_attempt = false;
+
+                if ( mc_is_gated( zone.buildable_name ) )
+                    can_attempt = deliverable.size > 0 && deliverable.size == mc_count_remaining( zone );
+                else
+                    can_attempt = deliverable.size > 0;
+
+                if ( can_attempt )
+                {
+                    already_added = false;
+                    for ( i = 0; i < available.size; i++ )
+                    {
+                        if ( available[i].buildablezone.buildable_name == stub.buildablezone.buildable_name )
+                        {
+                            already_added = true;
+                            break;
+                        }
+                    }
+
+                    if ( !already_added )
+                        available[available.size] = stub;
+                }
+            }
+        }
+        return mc_sort_available_buildables( available );
+    }
+
+    foreach ( stub in level.buildable_stubs )
+    {
+        if ( !isdefined( stub.buildablezone ) || !isdefined( stub.buildablezone.pieces ) )
+            continue;
+
+        if ( !mc_is_ours( stub.buildablezone.buildable_name ) )
+            continue;
+
+        if ( isdefined( stub.table_built ) && stub.table_built )
+            continue;
+
+        if ( isdefined( stub.built ) && stub.built )
+            continue;
+
+        zone = stub.buildablezone;
+        stub_origin = mc_get_stub_origin( stub );
+
+        if ( !mc_in_range( self.origin, stub_origin, mc_build_radius_sq( zone.buildable_name ) ) )
+            continue;
+
+        deliverable = self mc_get_deliverable_pieces( zone );
+        can_attempt = false;
+
+        if ( mc_is_gated( zone.buildable_name ) )
+            can_attempt = deliverable.size > 0 && deliverable.size == mc_count_remaining( zone );
+        else
+            can_attempt = deliverable.size > 0;
+
+        if ( can_attempt )
+        {
+            already_added = false;
+            for ( i = 0; i < available.size; i++ )
+            {
+                if ( available[i].buildablezone.buildable_name == stub.buildablezone.buildable_name )
+                {
+                    already_added = true;
+                    break;
+                }
+            }
+
+            if ( !already_added )
+                available[available.size] = stub;
+        }
+    }
+
+    return mc_sort_available_buildables( available );
+}
+
+mc_is_looking_at_buildable_table()
+{
+    eye = self geteye();
+    forward = anglestoforward( self getplayerangles() );
+
+    foreach ( stub in level.buildable_stubs )
+    {
+        if ( !isdefined( stub.buildablezone ) || !mc_is_ours( stub.buildablezone.buildable_name ) )
+            continue;
+        if ( isdefined( stub.table_built ) && stub.table_built )
+            continue;
+        if ( isdefined( stub.built ) && stub.built )
+            continue;
+
+        s_orig = mc_get_stub_origin( stub );
+        if ( isdefined( s_orig ) && distance2dsquared( self.origin, s_orig ) < MC_BUILD_RADIUS_SQ )
+        {
+            zdiff = self.origin[2] - s_orig[2];
+            if ( zdiff < 0 )
+                zdiff = zdiff * -1;
+                
+            if ( zdiff <= MC_HEIGHT_TOLERANCE )
+            {
+                dir = vectornormalize( s_orig - eye );
+                if ( vectordot( forward, dir ) > 0.35 )
+                    return true;
+            }
+        }
+    }
+    
+    return false;
+}
+
+mc_build_selection_loop()
+{
+    self endon( "disconnect" );
+
+    if ( !( isdefined( level.mc_is_buried ) && level.mc_is_buried ) )
+        return;
+
+    while ( true )
+    {
+        if ( self usebuttonpressed() )
+        {
+            if ( !isdefined( self.mc_f_was_pressed ) || !self.mc_f_was_pressed )
+            {
+                self.mc_f_was_pressed = 1;
+
+                if ( !isdefined( self.mc_last_f_press ) )
+                    self.mc_last_f_press = 0;
+
+                if ( gettime() - self.mc_last_f_press < 500 )
+                {
+                    self.mc_last_f_press = 0;
+                    
+                    if ( self mc_is_looking_at_buildable_table() )
+                    {
+                        available = self mc_get_available_buildables_at_pos();
+
+                        if ( available.size > 1 )
+                        {
+                            current_idx = 0;
+                            if ( isdefined( self.mc_preferred_buildable ) )
+                            {
+                                for ( i = 0; i < available.size; i++ )
+                                {
+                                    if ( available[i].buildablezone.buildable_name == self.mc_preferred_buildable )
+                                    {
+                                        current_idx = i;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            next_idx = current_idx + 1;
+                            if ( next_idx >= available.size )
+                                next_idx = 0;
+                                
+                            self.mc_preferred_buildable = available[next_idx].buildablezone.buildable_name;
+                            self playlocalsound( "zmb_bgb_notification" );
+                            self iprintln( "^2Scavenger: Selected " + mc_display_name( self.mc_preferred_buildable ) + "!" );
+
+                            foreach ( stub in available )
+                            {
+                                stub mc_custom_prompt( self );
+                                if ( isdefined( stub.trigger ) && isdefined( stub.hint_string ) )
+                                    stub.trigger sethintstring( stub.hint_string );
+                            }
+                        }
+                        else if ( available.size == 1 )
+                        {
+                            self playlocalsound( "zmb_bgb_notification" );
+                            self iprintln( "^2Scavenger: Selected " + mc_display_name( available[0].buildablezone.buildable_name ) + "!" );
+                        }
+                        else
+                        {
+                            self iprintln( "^1Scavenger: No buildables at this table!" );
+                        }
+                    }
+                }
+                else
+                {
+                    self.mc_last_f_press = gettime();
+                }
+            }
+        }
+        else
+        {
+            self.mc_f_was_pressed = 0;
+        }
+
+        // Ensure preferred buildable is valid for current location
+        if ( self mc_is_looking_at_buildable_table() )
+        {
+            available = self mc_get_available_buildables_at_pos();
+            if ( available.size > 0 )
+            {
+                if ( !isdefined( self.mc_preferred_buildable ) )
+                {
+                    self.mc_preferred_buildable = available[0].buildablezone.buildable_name;
+                    
+                    foreach ( stub in available )
+                    {
+                        stub mc_custom_prompt( self );
+                        if ( isdefined( stub.trigger ) && isdefined( stub.hint_string ) )
+                            stub.trigger sethintstring( stub.hint_string );
+                    }
+                }
+            }
+        }
+        
+        wait 0.05;
+    }
+}
+
+// ===== Die Rise Elevator Key & Elevator Lock system =====
+// Checks if player is looking directly at an Elevator Key Callbox / Insert Key prompt
+mc_is_looking_at_elevator_callbox()
+{
+    eye = self geteye();
+    forward = anglestoforward( self getplayerangles() );
+
+    // Check buildable stubs for elevator key ONLY
+    if ( isdefined( level.buildable_stubs ) )
+    {
+        foreach ( stub in level.buildable_stubs )
+        {
+            is_key_stub = false;
+
+            if ( isdefined( stub.equipname ) && ( stub.equipname == "elevator_key" || issubstr( stub.equipname, "key" ) ) )
+                is_key_stub = true;
+
+            if ( isdefined( stub.targetname ) && ( stub.targetname == "elevator_key_trigger" || issubstr( stub.targetname, "elevator_key" ) || issubstr( stub.targetname, "key" ) ) )
+                is_key_stub = true;
+
+            if ( is_key_stub )
+            {
+                s_orig = mc_get_stub_origin( stub );
+                if ( isdefined( s_orig ) && distance2dsquared( self.origin, s_orig ) < 62500 )
+                {
+                    dir = vectornormalize( s_orig - eye );
+                    if ( vectordot( forward, dir ) > 0.35 )
+                        return true;
+                }
+            }
+        }
+    }
+
+    // Check use triggers related strictly to elevator KEY callboxes (EXCLUDES perk machines & elevator doors!)
+    triggers = getentarray( "trigger_use", "classname" );
+    triggers_touch = getentarray( "trigger_use_touch", "classname" );
+    all_trigs = arraycombine( triggers, triggers_touch, 0, 0 );
+
+    if ( isdefined( all_trigs ) )
+    {
+        foreach ( trg in all_trigs )
+        {
+            if ( !isdefined( trg ) )
+                continue;
+
+            // Explicitly EXCLUDE Perk machines and vending triggers!
+            if ( isdefined( trg.targetname ) && ( issubstr( trg.targetname, "vending" ) || issubstr( trg.targetname, "perk" ) ) )
+                continue;
+
+            if ( isdefined( trg.script_noteworthy ) && ( issubstr( trg.script_noteworthy, "vending" ) || issubstr( trg.script_noteworthy, "perk" ) ) )
+                continue;
+
+            is_key_trg = false;
+
+            if ( isdefined( trg.targetname ) && ( trg.targetname == "elevator_key_trigger" || issubstr( trg.targetname, "elevator_key" ) || issubstr( trg.targetname, "key" ) || issubstr( trg.targetname, "callbox" ) ) )
+                is_key_trg = true;
+
+            if ( isdefined( trg.script_noteworthy ) && ( trg.script_noteworthy == "elevator_key_trigger" || issubstr( trg.script_noteworthy, "elevator_key" ) || issubstr( trg.script_noteworthy, "key" ) || issubstr( trg.script_noteworthy, "callbox" ) ) )
+                is_key_trg = true;
+
+            if ( is_key_trg && distance2dsquared( self.origin, trg.origin ) < 62500 )
+            {
+                dir = vectornormalize( trg.origin - eye );
+                if ( vectordot( forward, dir ) > 0.35 )
+                    return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+mc_get_master_elevator_key_piece()
+{
+    if ( isdefined( level.buildable_stubs ) )
+    {
+        foreach ( stub in level.buildable_stubs )
+        {
+            if ( isdefined( stub.equipname ) && ( stub.equipname == "elevator_key" || issubstr( stub.equipname, "key" ) ) )
+            {
+                if ( isdefined( stub.buildablezone ) && isdefined( stub.buildablezone.pieces ) && stub.buildablezone.pieces.size > 0 )
+                {
+                    p = stub.buildablezone.pieces[0];
+                    p.buildablezone = stub.buildablezone;
+                    return p;
+                }
+            }
+        }
+    }
+
+    return undefined;
+}
+
+mc_is_key_piece( p )
+{
+    if ( !isdefined( p ) )
+        return false;
+
+    if ( isdefined( p.piece_name ) && ( p.piece_name == "elevator_key" || issubstr( p.piece_name, "key" ) ) )
+        return true;
+
+    if ( isdefined( p.buildable_name ) && ( p.buildable_name == "elevator_key" || issubstr( p.buildable_name, "key" ) ) )
+        return true;
+
+    if ( isdefined( p.buildablename ) && ( p.buildablename == "elevator_key" || issubstr( p.buildablename, "key" ) ) )
+        return true;
+
+    if ( isdefined( p.modelname ) && ( issubstr( p.modelname, "key" ) || issubstr( p.modelname, "vator" ) ) )
+        return true;
+
+    if ( isdefined( p.model ) && ( issubstr( p.model, "key" ) || issubstr( p.model, "vator" ) ) )
+        return true;
+
+    if ( isdefined( p.equipname ) && ( p.equipname == "elevator_key" || issubstr( p.equipname, "key" ) ) )
+        return true;
+
+    if ( isdefined( p.buildablezone ) )
+    {
+        if ( isdefined( p.buildablezone.buildable_name ) && ( p.buildablezone.buildable_name == "elevator_key" || issubstr( p.buildablezone.buildable_name, "key" ) ) )
+            return true;
+
+        if ( isdefined( p.buildablezone.stub ) && isdefined( p.buildablezone.stub.equipname ) && issubstr( p.buildablezone.stub.equipname, "key" ) )
+            return true;
+    }
+
+    return false;
+}
+
+mc_force_delete_player_key()
+{
+    // Do NOT alter inventory or destroy pieces while player is drinking a perk bottle
+    if ( isdefined( self.is_drinking ) && self.is_drinking )
+        return;
+
+    // 1. Destroy via player_destroy_piece
+    held_pieces = self player_get_buildable_pieces();
+
+    if ( isdefined( held_pieces ) )
+    {
+        foreach ( p in held_pieces )
+        {
+            if ( mc_is_key_piece( p ) )
+            {
+                if ( !isdefined( p.buildablezone ) )
+                {
+                    master_kp = mc_get_master_elevator_key_piece();
+                    if ( isdefined( master_kp ) && isdefined( master_kp.buildablezone ) )
+                        p.buildablezone = master_kp.buildablezone;
+                }
+
+                if ( isdefined( p.buildablezone ) )
+                    self player_destroy_piece( p );
+            }
+        }
+    }
+
+    // 2. Direct cleanup of self.buildable_pieces array and HUD elements
+    if ( isdefined( self.buildable_pieces ) )
+    {
+        slots_to_clear = [];
+        foreach ( slot, piece in self.buildable_pieces )
+        {
+            if ( mc_is_key_piece( piece ) )
+            {
+                slots_to_clear[slots_to_clear.size] = slot;
+            }
+        }
+
+        foreach ( slot in slots_to_clear )
+        {
+            self.buildable_pieces[slot] = undefined;
+
+            if ( isdefined( self.buildable_hud ) && isdefined( self.buildable_hud[slot] ) )
+            {
+                self.buildable_hud[slot] destroy();
+                self.buildable_hud[slot] = undefined;
+            }
+        }
+    }
+
+    // 3. Clear direct player buildable properties
+    if ( isdefined( self.buildable_piece ) && mc_is_key_piece( self.buildable_piece ) )
+        self.buildable_piece = undefined;
+}
+
+// Unlimited Elevator Key logic: Unlocked ONLY after player picks up a key to begin with!
+// Regives key when looking at elevator interact, destroys key when looking away.
+mc_infinite_elevator_key_think()
+{
+    self endon( "disconnect" );
+
+    map = getdvar( "mapname" );
+    if ( map != "zm_highrise" )
+        return;
+
+    level waittill( "buildables_setup" );
+
+    while ( true )
+    {
+        if ( isdefined( self.is_drinking ) && self.is_drinking )
+        {
+            wait 0.05;
+            continue;
+        }
+
+        held_pieces = self player_get_buildable_pieces();
+        has_key = false;
+
+        if ( isdefined( held_pieces ) )
+        {
+            foreach ( p in held_pieces )
+            {
+                if ( mc_is_key_piece( p ) )
+                {
+                    has_key = true;
+                    break;
+                }
+            }
+        }
+
+        if ( !has_key && isdefined( self.buildable_pieces ) )
+        {
+            foreach ( slot, p in self.buildable_pieces )
+            {
+                if ( mc_is_key_piece( p ) )
+                {
+                    has_key = true;
+                    break;
+                }
+            }
+        }
+
+        // Detect initial key pickup to unlock unlimited key feature and IMMEDIATELY delete key from player on pickup
+        if ( has_key && !( isdefined( self.mc_has_unlocked_key ) && self.mc_has_unlocked_key ) )
+        {
+            self.mc_has_unlocked_key = true;
+            self mc_force_delete_player_key();
+            has_key = false;
+        }
+
+        // ONLY manage key if player has picked up a key at least once in this game
+        if ( isdefined( self.mc_has_unlocked_key ) && self.mc_has_unlocked_key )
+        {
+            looking = self mc_is_looking_at_elevator_callbox();
+
+            if ( looking )
+            {
+                if ( !has_key )
+                {
+                    kp = mc_get_master_elevator_key_piece();
+
+                    if ( isdefined( kp ) )
+                    {
+                        slot = "buildable_slot";
+                        if ( isdefined( kp.buildablezone ) && isdefined( kp.buildablezone.buildable_slot ) )
+                            slot = kp.buildablezone.buildable_slot;
+
+                        self player_set_buildable_piece( kp, slot );
+                    }
+                }
+            }
+            else
+            {
+                // Delete key from player inventory when NOT looking at elevator interact box
+                self mc_force_delete_player_key();
+            }
+        }
+
+        wait 0.05;
+    }
+}
+
+// Per-player elevator lock & unlock listener: Hold USE key ('F') for 0.5s on Insert Key buildable prompt
+mc_elevator_lock_think_player()
+{
+    self endon( "disconnect" );
+    level endon( "end_game" );
+
+    map = getdvar( "mapname" );
+    if ( map != "zm_highrise" )
+        return;
+
+    level waittill( "buildables_setup" );
+
+    while ( true )
+    {
+        if ( isdefined( self.is_drinking ) && self.is_drinking )
+        {
+            wait 0.08;
+            continue;
+        }
+
+        if ( self usebuttonpressed() )
+        {
+            if ( self mc_is_looking_at_elevator_callbox() )
+            {
+                elev = self mc_get_closest_or_occupied_elevator();
+
+                if ( isdefined( elev ) )
+                {
+                    hold_time = 0;
+
+                    while ( self usebuttonpressed() && self mc_is_looking_at_elevator_callbox() )
+                    {
+                        hold_time += 0.05;
+
+                        if ( hold_time >= 0.5 )
+                        {
+                            is_locked = isdefined( elev.mc_locked ) && elev.mc_locked;
+
+                            if ( !is_locked )
+                            {
+                                // Verify elevator is currently on player's level (Z height difference <= 150 units)
+                                zdiff = self.origin[2] - elev.origin[2];
+                                if ( zdiff < 0 )
+                                    zdiff = zdiff * -1;
+
+                                if ( zdiff <= 33 )//150
+                                {
+                                    mc_set_elevator_locked_state( elev, true );
+
+                                    self playlocalsound( "zmb_buildable_piece_add" );
+                                    self iprintlnbold( "^1Elevator Position Locked!" );
+                                }
+                                else
+                                {
+                                    self playlocalsound( "zmb_no_ammo" );
+                                    self iprintlnbold( "^1Elevator must be on your level to lock!" );
+                                }
+                            }
+                            else
+                            {
+                                // Elevator is already locked: Unlock it!
+                                mc_set_elevator_locked_state( elev, false );
+
+                                self playlocalsound( "zmb_buildable_piece_add" );
+                                self iprintlnbold( "^2Elevator Position Unlocked!" );
+                            }
+
+                            while ( self usebuttonpressed() )
+                            {
+                                wait 0.05;
+                            }
+                            break;
+                        }
+
+                        wait 0.05;
+                    }
+                }
+            }
+        }
+
+        wait 0.05;
+    }
+}
+
+mc_set_elevator_locked_state( elev, is_locked )
+{
+    if ( !isdefined( elev ) )
+        return;
+
+    elev.mc_locked = is_locked;
+
+    if ( is_locked )
+    {
+        elev.mc_locked_origin = elev.origin;
+        elev thread mc_elevator_lock_think();
+    }
+    else
+    {
+        elev.mc_locked_origin = undefined;
+    }
+
+    if ( isdefined( level.elevators ) )
+    {
+        foreach ( struct_e in level.elevators )
+        {
+            if ( isdefined( struct_e ) )
+            {
+                if ( ( isdefined( struct_e.body ) && struct_e.body == elev ) || ( struct_e == elev ) )
+                {
+                    struct_e.mc_locked = is_locked;
+                    if ( is_locked )
+                        struct_e.mc_locked_origin = elev.origin;
+                    else
+                        struct_e.mc_locked_origin = undefined;
+                }
+            }
+        }
+    }
+}
+
+mc_elevator_lock_think()
+{
+    self endon( "death" );
+
+    if ( isdefined( self.mc_lock_loop_active ) && self.mc_lock_loop_active )
+        return;
+
+    self.mc_lock_loop_active = true;
+
+    while ( isdefined( self.mc_locked ) && self.mc_locked )
+    {
+        if ( isdefined( self.mc_locked_origin ) )
+        {
+            self moveto( self.mc_locked_origin, 0.1 );
+        }
+        wait 0.05;
+    }
+
+    self.mc_lock_loop_active = false;
+}
+
+mc_get_closest_or_occupied_elevator()
+{
+    elevs = mc_get_all_elevator_ents();
+
+    if ( !isdefined( elevs ) || elevs.size == 0 )
+        return undefined;
+
+    closest = undefined;
+    best_dist = 62500; // 250 units 2D radius max
+
+    p_orig = self.origin;
+
+    foreach ( e in elevs )
+    {
+        if ( !isdefined( e ) )
+            continue;
+
+        e_orig = e.origin;
+
+        // Match 2D distance squared (X/Y plane) to identify elevator car in the target shaft
+        d2 = distance2dsquared( p_orig, e_orig );
+
+        if ( d2 < best_dist )
+        {
+            best_dist = d2;
+            closest = e;
+        }
+    }
+
+    return closest;
+}
+
+mc_get_all_elevator_ents()
+{
+    elevs = [];
+
+    if ( isdefined( level.elevators ) && level.elevators.size > 0 )
+    {
+        foreach ( e in level.elevators )
+        {
+            if ( isdefined( e.body ) )
+            {
+                elevs[elevs.size] = e.body;
+            }
+            else
+            {
+                elevs[elevs.size] = e;
+            }
+        }
+    }
+
+    if ( elevs.size > 0 )
+        return elevs;
+
+    models = getentarray( "script_model", "classname" );
+    brushmodels = getentarray( "script_brushmodel", "classname" );
+    all_ents = [];
+
+    if ( isdefined( models ) )
+    {
+        foreach ( m in models )
+            all_ents[all_ents.size] = m;
+    }
+    if ( isdefined( brushmodels ) )
+    {
+        foreach ( b in brushmodels )
+            all_ents[all_ents.size] = b;
+    }
+
+    foreach ( ent in all_ents )
+    {
+        if ( !isdefined( ent ) )
+            continue;
+
+        is_elev = false;
+
+        if ( isdefined( ent.targetname ) && ( issubstr( ent.targetname, "elevator" ) || issubstr( ent.targetname, "vator" ) ) )
+            is_elev = true;
+
+        if ( isdefined( ent.model ) && ( issubstr( ent.model, "elevator" ) || issubstr( ent.model, "vator" ) ) )
+            is_elev = true;
+
+        if ( isdefined( ent.script_noteworthy ) && ( issubstr( ent.script_noteworthy, "elevator" ) || issubstr( ent.script_noteworthy, "vator" ) ) )
+            is_elev = true;
+
+        if ( is_elev )
+        {
+            elevs[elevs.size] = ent;
+        }
+    }
+
+    return elevs;
 }
